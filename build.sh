@@ -1,1 +1,0 @@
-clang++ ./src/main.cpp -o main -std=c++20 -Wall -lSDL2 -lSDL2_ttf -O3

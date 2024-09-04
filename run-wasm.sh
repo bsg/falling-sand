@@ -1,0 +1,1 @@
+make index.html && emrun --browser chrome index.html

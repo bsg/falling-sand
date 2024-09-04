@@ -3,3 +3,7 @@ main.dSYM
 main
 *.ll
 *.s
+*.wasm
+*.data
+*.js
+*.html

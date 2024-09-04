@@ -1,1 +1,0 @@
-clang++ -S -emit-llvm ./src/main.cpp -std=c++20 -O3
