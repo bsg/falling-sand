@@ -1,5 +1,6 @@
 #include "SDL2/SDL_error.h"
 #include "SDL2/SDL_events.h"
+#include "SDL2/SDL_keycode.h"
 #include "SDL2/SDL_mouse.h"
 #include "SDL2/SDL_pixels.h"
 #include "SDL2/SDL_rect.h"
@@ -12,6 +13,7 @@
 #include <__concepts/same_as.h>
 #include <chrono>
 #include <iostream>
+#include <string>
 
 #ifdef __EMSCRIPTEN__
 #include "emscripten.h"
@@ -42,7 +44,7 @@ template <typename T> struct vec2 {
     }
 };
 
-#define SCREEN_WIDTH 1200
+#define SCREEN_WIDTH 1000
 #define SCREEN_HEIGHT 1000
 #define WORLD_WIDTH 500
 #define WORLD_HEIGHT 500
@@ -71,9 +73,10 @@ template <IsParticle P> struct World<P> {
     }
 
     void spawn(P p, vec2<u32> pos) {
-        p.setLive(true);
-        p.setGeneration(mGeneration);
-        mState[pos.y][pos.x] = p;
+        if (pos.x >= 0 && pos.x < WORLD_WIDTH && pos.y >= 0 && pos.y < WORLD_HEIGHT) {
+            p.setGeneration(mGeneration);
+            mState[pos.y][pos.x] = p;
+        }
     }
 
     void swap(P *a, P *b) {
@@ -101,9 +104,9 @@ template <IsParticle P> struct World<P> {
         for (int y = 0; y < WORLD_HEIGHT; y++) {
             for (int x = 0; x < WORLD_WIDTH; x++) {
                 P *p = &mState[y][x];
-                if (!p->isLive()) {
-                    continue;
-                }
+                // if (!p->isLive()) {
+                //     continue;
+                // }
 
                 bool shouldUpdate = false;
                 if (p->mGeneration == mGeneration) [[likely]] {
@@ -125,29 +128,68 @@ SDL_Texture *gWorldTexture = nullptr;
 u32 *gTexPixels = nullptr;
 TTF_Font *gFont = nullptr;
 bool gQuit = false;
-bool gSpawn = false;
 
 struct ParticleSimple {
-    enum class Material : u8 { Air, Sand, Water };
+    enum class Material : u8 { Air, Sand, Water, Rock };
 
     Material mMaterial;
     u8 mGeneration;
     bool mLive;
     u8 mDensity;
     u32 mColor;
+    bool mPreferSlideLeft;
 
+    ParticleSimple(){};
+    ParticleSimple(Material material);
     bool isLive() { return mLive; }
     void setLive(bool live) { mLive = live; }
     u8 getGeneration() { return mGeneration; }
     void setGeneration(u8 generation) { mGeneration = generation; }
+    void trySwapWithAlternate(World<ParticleSimple> &world, vec2<u32> targetPos, vec2<u32> alternatePos);
     void step(World<ParticleSimple> &world, bool shouldUpdate, vec2<u32> pos);
 };
 
+ParticleSimple::ParticleSimple(ParticleSimple::Material material) {
+    switch (material) {
+    case ParticleSimple::Material::Air:
+        break;
+    case ParticleSimple::Material::Sand:
+        mDensity = 2;
+        mColor = 0xFFFFCC00 + rand() % 200;
+        mLive = true;
+        break;
+    case ParticleSimple::Material::Water:
+        mDensity = 1;
+        mColor = 0xFF0000FF;
+        mLive = true;
+        break;
+    case ParticleSimple::Material::Rock:
+        mDensity = 255;
+        u32 r = rand();
+        mColor = 0xFF48443C + ((r % 50) << 16) + ((r % 50) << 8) + (r % 50);
+        mLive = false;
+        break;
+    }
+
+    mMaterial = material;
+    mPreferSlideLeft = rand() % 2 == 0;
+}
+
+void ParticleSimple::trySwapWithAlternate(World<ParticleSimple> &world, vec2<u32> targetPos, vec2<u32> alternatePos) {
+    auto p = world.getParticle(targetPos.x, targetPos.y);
+    auto altP = world.getParticle(alternatePos.x, alternatePos.y);
+    if (p && p->mDensity < mDensity) {
+        world.swap(this, p);
+    } else if (altP && altP->mDensity < mDensity) {
+        world.swap(this, altP);
+    }
+}
+
 void ParticleSimple::step(World<ParticleSimple> &world, bool shouldUpdate, vec2<u32> pos) {
+    gTexPixels[pos.y * WORLD_WIDTH + pos.x] = mColor;
+
     if (!shouldUpdate || mMaterial == ParticleSimple::Material::Air)
         return;
-
-    gTexPixels[pos.y * WORLD_WIDTH + pos.x] = mColor;
 
     auto bottomParticle = world.getParticle(pos.x, pos.y + 1);
     auto bottomLeftParticle = world.getParticle(pos.x - 1, pos.y + 1);
@@ -159,27 +201,30 @@ void ParticleSimple::step(World<ParticleSimple> &world, bool shouldUpdate, vec2<
     case ParticleSimple::Material::Sand:
         if (bottomParticle && bottomParticle->mDensity < mDensity) {
             world.swap(this, bottomParticle);
-        } else if (bottomLeftParticle && bottomLeftParticle->mDensity < mDensity) {
-            world.swap(this, bottomLeftParticle);
-        } else if (bottomRightParticle && bottomRightParticle->mDensity < mDensity) {
-            world.swap(this, bottomRightParticle);
+        } else {
+            if (mPreferSlideLeft) {
+                trySwapWithAlternate(world, vec2<u32>(pos.x - 1, pos.y + 1), vec2<u32>(pos.x + 1, pos.y + 1));
+            } else {
+                trySwapWithAlternate(world, vec2<u32>(pos.x + 1, pos.y + 1), vec2<u32>(pos.x - 1, pos.y + 1));
+            }
         }
         break;
     case ParticleSimple::Material::Water:
-        auto leftParticle = world.getParticle(pos.x - 1, pos.y);
-        auto rightParticle = world.getParticle(pos.x + 1, pos.y);
-
         if (bottomParticle && bottomParticle->mDensity < mDensity) {
             world.swap(this, bottomParticle);
         } else if (bottomLeftParticle && bottomLeftParticle->mDensity < mDensity) {
             world.swap(this, bottomLeftParticle);
         } else if (bottomRightParticle && bottomRightParticle->mDensity < mDensity) {
             world.swap(this, bottomRightParticle);
-        } else if (leftParticle && leftParticle->mDensity < mDensity) {
-            world.swap(this, leftParticle);
-        } else if (rightParticle && rightParticle->mDensity < mDensity) {
-            world.swap(this, rightParticle);
+        } else {
+            if (mPreferSlideLeft) {
+                trySwapWithAlternate(world, vec2<u32>(pos.x - 1, pos.y), vec2<u32>(pos.x + 1, pos.y));
+            } else {
+                trySwapWithAlternate(world, vec2<u32>(pos.x + 1, pos.y), vec2<u32>(pos.x - 1, pos.y));
+            }
         }
+        break;
+    case ParticleSimple::Material::Rock:
         break;
     }
 }
@@ -191,6 +236,12 @@ inline void sdl_bail(std::string s) {
     exit(1);
 }
 
+ParticleSimple::Material gSelectedMaterial = ParticleSimple::Material::Air;
+
+enum class BrushMode : u8 { Spray, Paint };
+BrushMode gSelectedBrushMode = BrushMode::Spray;
+
+bool gSpawn = false;
 inline void mainLoop() {
     SDL_Event e;
 
@@ -204,6 +255,26 @@ inline void mainLoop() {
 #endif
             break;
         case SDL_KEYDOWN:
+            switch (e.key.keysym.sym) {
+            case SDLK_1:
+                gSelectedMaterial = ParticleSimple::Material::Sand;
+                break;
+            case SDLK_2:
+                gSelectedMaterial = ParticleSimple::Material::Water;
+                break;
+            case SDLK_3:
+                gSelectedMaterial = ParticleSimple::Material::Rock;
+                break;
+            case SDLK_0:
+                gSelectedMaterial = ParticleSimple::Material::Air;
+                break;
+            case SDLK_q:
+                gSelectedBrushMode = BrushMode::Spray;
+                break;
+            case SDLK_w:
+                gSelectedBrushMode = BrushMode::Paint;
+                break;
+            }
             break;
         case SDL_MOUSEBUTTONDOWN:
             gSpawn = true;
@@ -220,22 +291,29 @@ inline void mainLoop() {
         int mouseX, mouseY;
         u32 buttonState = SDL_GetMouseState(&mouseX, &mouseY);
 
-        const int SPAWN_DISPERSION = 4;
-        u32 spawnX = mouseX / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
-        u32 spawnY = mouseY / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
+        if (buttonState & SDL_BUTTON(SDL_BUTTON_LEFT)) {
+            ParticleSimple p(gSelectedMaterial);
 
-        if (spawnX >= 0 && spawnX < WORLD_WIDTH && spawnY >= 0 && spawnY < WORLD_HEIGHT) {
-            ParticleSimple p;
-            if (buttonState & SDL_BUTTON(SDL_BUTTON_LEFT)) {
-                p.mDensity = 2;
-                p.mColor = 0xFFFFCC00 + rand() % 200;
-                p.mMaterial = ParticleSimple::Material::Sand;
-            } else if (buttonState & SDL_BUTTON(SDL_BUTTON_RIGHT)) {
-                p.mDensity = 1;
-                p.mColor = 0xFF0000FF;
-                p.mMaterial = ParticleSimple::Material::Water;
+            u32 spawnX, spawnY;
+            const int SPAWN_DISPERSION = 4;
+
+            switch (gSelectedBrushMode) {
+            case BrushMode::Spray:
+                spawnX = mouseX / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
+                spawnY = mouseY / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
+
+                gWorld.spawn(p, vec2<u32>(spawnX, spawnY));
+                break;
+            case BrushMode::Paint:
+                for (int offsetX = -2; offsetX <= 2; offsetX++) {
+                    for (int offsetY = -2; offsetY <= 2; offsetY++) {
+                        p = ParticleSimple(gSelectedMaterial);
+                        gWorld.spawn(
+                            p, vec2<u32>(mouseX / WORLD_DRAW_SCALE + offsetX, mouseY / WORLD_DRAW_SCALE + offsetY));
+                    }
+                }
+                break;
             }
-            gWorld.spawn(p, vec2<u32>(spawnX, spawnY));
         }
     }
 
@@ -268,9 +346,13 @@ inline void mainLoop() {
     auto elapsed = std::chrono::high_resolution_clock::now() - startTime;
     u128 frameTimeUs = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
 
+    static std::string txtBrushMaterials[] = {"AIR", "SAND", "WATER", "ROCK"};
+    static std::string txtBrushModes[] = {"SPRAY", "PAINT"};
+
     char buf[1024];
-    std::snprintf(buf, 1024, "%.2f TPS (%.3f ms)", 1'000'000.0f / frameTimeUs, frameTimeUs / 1000.0);
-    SDL_Surface *surfaceTxt = TTF_RenderText_Blended(gFont, buf, {255, 255, 255});
+    std::snprintf(buf, 1024, "%07.2f TPS (%06.3f ms)\nBRUSH: %s %s", 1'000'000.0f / frameTimeUs, frameTimeUs / 1000.0,
+                  txtBrushModes[(u32)gSelectedBrushMode].c_str(), txtBrushMaterials[(u32)gSelectedMaterial].c_str());
+    SDL_Surface *surfaceTxt = TTF_RenderText_Blended_Wrapped(gFont, buf, {255, 255, 255}, 0);
     SDL_Texture *texTxt = SDL_CreateTextureFromSurface(gRenderer, surfaceTxt);
     SDL_Rect rectTxt = {0, 0, 0, 0};
     SDL_QueryTexture(texTxt, nullptr, nullptr, &rectTxt.w, &rectTxt.h);
