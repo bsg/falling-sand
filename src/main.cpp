@@ -81,8 +81,9 @@ template <IsParticle P> struct World<P> {
 
     void swap(P *a, P *b) {
         if (b > a) {
-            // b will never be reached in this iteration and if the generation lags behind, it won't be ticked
-            // until mGeneration runs a whole cycle. this also means b is not ticked until the next frame but eh...
+            // b will never be reached in this iteration and if the generation lags behind, it won't
+            // be ticked until mGeneration runs a whole cycle. this also means b is not ticked until
+            // the next frame but eh...
             b->mGeneration++;
         }
 
@@ -145,7 +146,8 @@ struct ParticleSimple {
     void setLive(bool live) { mLive = live; }
     u8 getGeneration() { return mGeneration; }
     void setGeneration(u8 generation) { mGeneration = generation; }
-    void trySwapWithAlternate(World<ParticleSimple> &world, vec2<u32> targetPos, vec2<u32> alternatePos);
+    bool trySwapWithAlternate(World<ParticleSimple> &world, vec2<u32> targetPos,
+                              vec2<u32> alternatePos);
     void step(World<ParticleSimple> &world, bool shouldUpdate, vec2<u32> pos);
 };
 
@@ -175,14 +177,19 @@ ParticleSimple::ParticleSimple(ParticleSimple::Material material) {
     mPreferSlideLeft = rand() % 2 == 0;
 }
 
-void ParticleSimple::trySwapWithAlternate(World<ParticleSimple> &world, vec2<u32> targetPos, vec2<u32> alternatePos) {
+bool ParticleSimple::trySwapWithAlternate(World<ParticleSimple> &world, vec2<u32> targetPos,
+                                          vec2<u32> alternatePos) {
     auto p = world.getParticle(targetPos.x, targetPos.y);
     auto altP = world.getParticle(alternatePos.x, alternatePos.y);
     if (p && p->mDensity < mDensity) {
         world.swap(this, p);
+        return true;
     } else if (altP && altP->mDensity < mDensity) {
         world.swap(this, altP);
+        return true;
     }
+
+    return false;
 }
 
 void ParticleSimple::step(World<ParticleSimple> &world, bool shouldUpdate, vec2<u32> pos) {
@@ -203,24 +210,35 @@ void ParticleSimple::step(World<ParticleSimple> &world, bool shouldUpdate, vec2<
             world.swap(this, bottomParticle);
         } else {
             if (mPreferSlideLeft) {
-                trySwapWithAlternate(world, vec2<u32>(pos.x - 1, pos.y + 1), vec2<u32>(pos.x + 1, pos.y + 1));
+                trySwapWithAlternate(world, vec2<u32>(pos.x - 1, pos.y + 1),
+                                     vec2<u32>(pos.x + 1, pos.y + 1));
             } else {
-                trySwapWithAlternate(world, vec2<u32>(pos.x + 1, pos.y + 1), vec2<u32>(pos.x - 1, pos.y + 1));
+                trySwapWithAlternate(world, vec2<u32>(pos.x + 1, pos.y + 1),
+                                     vec2<u32>(pos.x - 1, pos.y + 1));
             }
         }
         break;
     case ParticleSimple::Material::Water:
         if (bottomParticle && bottomParticle->mDensity < mDensity) {
             world.swap(this, bottomParticle);
-        } else if (bottomLeftParticle && bottomLeftParticle->mDensity < mDensity) {
-            world.swap(this, bottomLeftParticle);
-        } else if (bottomRightParticle && bottomRightParticle->mDensity < mDensity) {
-            world.swap(this, bottomRightParticle);
         } else {
+            bool swapped = false;
             if (mPreferSlideLeft) {
-                trySwapWithAlternate(world, vec2<u32>(pos.x - 1, pos.y), vec2<u32>(pos.x + 1, pos.y));
+                swapped = trySwapWithAlternate(world, vec2<u32>(pos.x - 1, pos.y + 1),
+                                               vec2<u32>(pos.x + 1, pos.y + 1));
             } else {
-                trySwapWithAlternate(world, vec2<u32>(pos.x + 1, pos.y), vec2<u32>(pos.x - 1, pos.y));
+                swapped = trySwapWithAlternate(world, vec2<u32>(pos.x + 1, pos.y + 1),
+                                               vec2<u32>(pos.x - 1, pos.y + 1));
+            }
+
+            if (!swapped) {
+                if (mPreferSlideLeft) {
+                    trySwapWithAlternate(world, vec2<u32>(pos.x - 1, pos.y),
+                                         vec2<u32>(pos.x + 1, pos.y));
+                } else {
+                    trySwapWithAlternate(world, vec2<u32>(pos.x + 1, pos.y),
+                                         vec2<u32>(pos.x - 1, pos.y));
+                }
             }
         }
         break;
@@ -299,8 +317,10 @@ inline void mainLoop() {
 
             switch (gSelectedBrushMode) {
             case BrushMode::Spray:
-                spawnX = mouseX / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
-                spawnY = mouseY / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
+                spawnX =
+                    mouseX / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
+                spawnY =
+                    mouseY / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
 
                 gWorld.spawn(p, vec2<u32>(spawnX, spawnY));
                 break;
@@ -308,8 +328,8 @@ inline void mainLoop() {
                 for (int offsetX = -2; offsetX <= 2; offsetX++) {
                     for (int offsetY = -2; offsetY <= 2; offsetY++) {
                         p = ParticleSimple(gSelectedMaterial);
-                        gWorld.spawn(
-                            p, vec2<u32>(mouseX / WORLD_DRAW_SCALE + offsetX, mouseY / WORLD_DRAW_SCALE + offsetY));
+                        gWorld.spawn(p, vec2<u32>(mouseX / WORLD_DRAW_SCALE + offsetX,
+                                                  mouseY / WORLD_DRAW_SCALE + offsetY));
                     }
                 }
                 break;
@@ -319,8 +339,8 @@ inline void mainLoop() {
 
 #ifdef __EMSCRIPTEN__
     SDL_DestroyTexture(gWorldTexture);
-    gWorldTexture =
-        SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, WORLD_WIDTH, WORLD_HEIGHT);
+    gWorldTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_ARGB8888,
+                                      SDL_TEXTUREACCESS_STREAMING, WORLD_WIDTH, WORLD_HEIGHT);
     if (gWorldTexture == nullptr) [[unlikely]] {
         sdl_bail("SDL_CreateTexture");
     }
@@ -340,7 +360,8 @@ inline void mainLoop() {
     SDL_SetRenderDrawColor(gRenderer, 33, 33, 33, 255);
     SDL_RenderClear(gRenderer);
 
-    SDL_Rect rect = {.x = 0, .y = 0, .w = WORLD_WIDTH * WORLD_DRAW_SCALE, .h = WORLD_HEIGHT * WORLD_DRAW_SCALE};
+    SDL_Rect rect = {
+        .x = 0, .y = 0, .w = WORLD_WIDTH * WORLD_DRAW_SCALE, .h = WORLD_HEIGHT * WORLD_DRAW_SCALE};
     SDL_RenderCopy(gRenderer, gWorldTexture, nullptr, &rect);
 
     auto elapsed = std::chrono::high_resolution_clock::now() - startTime;
@@ -350,8 +371,9 @@ inline void mainLoop() {
     static std::string txtBrushModes[] = {"SPRAY", "PAINT"};
 
     char buf[1024];
-    std::snprintf(buf, 1024, "%07.2f TPS (%06.3f ms)\nBRUSH: %s %s", 1'000'000.0f / frameTimeUs, frameTimeUs / 1000.0,
-                  txtBrushModes[(u32)gSelectedBrushMode].c_str(), txtBrushMaterials[(u32)gSelectedMaterial].c_str());
+    std::snprintf(buf, 1024, "%07.2f TPS (%06.3f ms)\nBRUSH: %s %s", 1'000'000.0f / frameTimeUs,
+                  frameTimeUs / 1000.0, txtBrushModes[(u32)gSelectedBrushMode].c_str(),
+                  txtBrushMaterials[(u32)gSelectedMaterial].c_str());
     SDL_Surface *surfaceTxt = TTF_RenderText_Blended_Wrapped(gFont, buf, {255, 255, 255}, 0);
     SDL_Texture *texTxt = SDL_CreateTextureFromSurface(gRenderer, surfaceTxt);
     SDL_Rect rectTxt = {0, 0, 0, 0};
@@ -367,8 +389,8 @@ int main() {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         sdl_bail("SDL_Init");
     }
-    gWindow = SDL_CreateWindow("falling sand", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH,
-                               SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
+    gWindow = SDL_CreateWindow("falling sand", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+                               SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN);
     if (gWindow == nullptr) {
         sdl_bail("SDL_CreateWindow");
     }
@@ -378,8 +400,8 @@ int main() {
         sdl_bail("SDL_CreateRenderer");
     }
 
-    gWorldTexture =
-        SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, WORLD_WIDTH, WORLD_HEIGHT);
+    gWorldTexture = SDL_CreateTexture(gRenderer, SDL_PIXELFORMAT_ARGB8888,
+                                      SDL_TEXTUREACCESS_STREAMING, WORLD_WIDTH, WORLD_HEIGHT);
     if (gWorldTexture == nullptr) {
         sdl_bail("SDL_CreateTexture");
     }
