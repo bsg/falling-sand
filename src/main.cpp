@@ -12,7 +12,6 @@
 #include <SDL2/SDL_ttf.h>
 #include <__concepts/same_as.h>
 #include <chrono>
-#include <initializer_list>
 #include <iostream>
 #include <string>
 #include <strings.h>
@@ -46,11 +45,11 @@ template <const u8 Dim, Scalar T> class Vector {
   public:
     Vector<Dim, T>() { bzero(&scalars, sizeof(scalars) * Dim); }
 
-    // TODO is it possible to have a size constrained initializer type?
-    Vector<Dim, T>(std::initializer_list<T> list) {
-        auto it = list.begin();
+    // TODO std::array has an upper bound but how do I statically enforce a lower bound
+    Vector<Dim, T>(std::array<T, Dim> initList) {
+        auto it = initList.begin();
         for (auto i = 0; i < Dim; i++) {
-            if (it < list.end()) {
+            if (it < initList.end()) {
                 scalars[i] = *it++;
             } else {
                 scalars[i] = 0;
@@ -108,7 +107,7 @@ template <IsParticle P> struct World<P> {
             b->mGeneration++;
         }
 
-        // this measures as fast as xor swap
+        // TODO this measures as fast as xor swap, look at the asm sometime
         P tmp = *a;
         *a = *b;
         *b = tmp;
