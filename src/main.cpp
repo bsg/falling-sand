@@ -70,20 +70,25 @@ template <class T> class Vec2 {
     T &y() { return inner[1]; }
 };
 
-template <typename T> struct World;
+template <typename P, template <typename> typename R> struct World;
 
 // clang-format off
-template <typename T>
-concept IsParticle = requires(World<T> world, T t, bool shouldUpdate, Vec2<u32> pos, bool live, u32 generation) {
+template <typename P>
+concept IsParticle = requires(P t, bool live, u32 generation) {
     { t.isLive() } -> std::same_as<bool>;
     { t.setLive(live) };
     { t.getGeneration() } -> std::same_as<u8>;
     { t.setGeneration(generation) };
-    { t.step(world, shouldUpdate, pos) };
+};
+
+template <typename P, template<typename> typename R>
+concept IsRule = requires(World<P, R> world, P particle, bool shouldUpdate, Vec2<u32> pos) {
+    // TODO constrain this to be static
+    { R<P>::step(world, particle, pos, shouldUpdate) };
 };
 // clang-format on
 
-template <IsParticle P> struct World<P> {
+template <IsParticle P, template <typename> typename R> struct World<P, R> {
     P mState[WORLD_HEIGHT][WORLD_WIDTH];
     u8 mGeneration;
 
@@ -121,6 +126,14 @@ template <IsParticle P> struct World<P> {
         }
     }
 
+    P *getParticle(Vec2<u32> pos) {
+        if (pos.x() > WORLD_WIDTH - 1 || pos.x() < 0 || pos.y() > WORLD_HEIGHT - 1 || pos.y() < 0) {
+            [[unlikely]] return nullptr;
+        } else {
+            return &mState[pos.y()][pos.x()];
+        }
+    }
+
     void step() {
         for (int y = 0; y < WORLD_HEIGHT; y++) {
             for (int x = 0; x < WORLD_WIDTH; x++) {
@@ -135,7 +148,7 @@ template <IsParticle P> struct World<P> {
                     p->mGeneration++;
                 }
 
-                p->step(*this, shouldUpdate, Vec2<u32>(x, y));
+                R<P>::step(*this, *p, Vec2<u32>(x, y), shouldUpdate);
             }
         }
         mGeneration++;
@@ -150,7 +163,7 @@ u32 *gTexPixels = nullptr;
 TTF_Font *gFont = nullptr;
 bool gQuit = false;
 
-struct ParticleSimple {
+struct Particle {
     enum class Material : u8 { Air, Sand, Water, Rock };
 
     Material mMaterial;
@@ -160,32 +173,29 @@ struct ParticleSimple {
     u32 mColor;
     bool mPreferSlideLeft;
 
-    ParticleSimple(){};
-    ParticleSimple(Material material);
+    Particle(){};
+    Particle(Material material);
     bool isLive() { return mLive; }
     void setLive(bool live) { mLive = live; }
     u8 getGeneration() { return mGeneration; }
     void setGeneration(u8 generation) { mGeneration = generation; }
-    bool trySwapWithAlternate(World<ParticleSimple> &world, Vec2<u32> targetPos,
-                              Vec2<u32> alternatePos);
-    void step(World<ParticleSimple> &world, bool shouldUpdate, Vec2<u32> pos);
 };
 
-ParticleSimple::ParticleSimple(ParticleSimple::Material material) {
+Particle::Particle(Particle::Material material) {
     switch (material) {
-    case ParticleSimple::Material::Air:
+    case Particle::Material::Air:
         break;
-    case ParticleSimple::Material::Sand:
+    case Particle::Material::Sand:
         mDensity = 2;
         mColor = 0xFFFFCC00 + rand() % 200;
         mLive = true;
         break;
-    case ParticleSimple::Material::Water:
+    case Particle::Material::Water:
         mDensity = 1;
         mColor = 0xFF0000FF;
         mLive = true;
         break;
-    case ParticleSimple::Material::Rock:
+    case Particle::Material::Rock:
         mDensity = 255;
         u32 r = rand();
         mColor = 0xFF48443C + ((r % 50) << 16) + ((r % 50) << 8) + (r % 50);
@@ -197,84 +207,92 @@ ParticleSimple::ParticleSimple(ParticleSimple::Material material) {
     mPreferSlideLeft = rand() % 2 == 0;
 }
 
-bool ParticleSimple::trySwapWithAlternate(World<ParticleSimple> &world, Vec2<u32> targetPos,
-                                          Vec2<u32> alternatePos) {
-    auto p = world.getParticle(targetPos.x(), targetPos.y());
-    auto altP = world.getParticle(alternatePos.x(), alternatePos.y());
-    if (p && p->mDensity < mDensity) {
-        world.swap(this, p);
+template <IsParticle P> struct Rule {
+    static bool trySwapWithAlternate(World<P, Rule> &world, P &particle, Vec2<u32> targetPos,
+                                     Vec2<u32> alternatePos);
+    static void step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate);
+};
+
+template <IsParticle P>
+bool Rule<P>::trySwapWithAlternate(World<P, Rule> &world, P &p, Vec2<u32> targetPos,
+                                   Vec2<u32> alternatePos) {
+    auto target = world.getParticle(targetPos);
+    auto alt = world.getParticle(alternatePos);
+    if (target && p.mDensity < target->mDensity) {
+        world.swap(&p, target);
         return true;
-    } else if (altP && altP->mDensity < mDensity) {
-        world.swap(this, altP);
+    } else if (alt && alt->mDensity < target->mDensity) {
+        world.swap(&p, alt);
         return true;
     }
-
     return false;
-}
+};
 
-void ParticleSimple::step(World<ParticleSimple> &world, bool shouldUpdate, Vec2<u32> pos) {
-    gTexPixels[pos.y() * WORLD_WIDTH + pos.x()] = mColor;
+template <IsParticle P>
+void Rule<P>::step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate) {
+    gTexPixels[pos.y() * WORLD_WIDTH + pos.x()] = p.mColor;
 
-    if (!shouldUpdate || mMaterial == ParticleSimple::Material::Air)
+    if (!shouldUpdate || p.mMaterial == Particle::Material::Air)
         return;
 
     auto bottomParticle = world.getParticle(pos.x(), pos.y() + 1);
     auto bottomLeftParticle = world.getParticle(pos.x() - 1, pos.y() + 1);
     auto bottomRightParticle = world.getParticle(pos.x() + 1, pos.y() + 1);
 
-    switch (mMaterial) {
-    case ParticleSimple::Material::Air:
+    switch (p.mMaterial) {
+    case Particle::Material::Air:
         break;
-    case ParticleSimple::Material::Sand:
-        if (bottomParticle && bottomParticle->mDensity < mDensity) {
-            world.swap(this, bottomParticle);
+    case Particle::Material::Sand:
+
+        if (bottomParticle && bottomParticle->mDensity < p.mDensity) {
+            world.swap(&p, bottomParticle);
         } else {
-            if (mPreferSlideLeft) {
-                trySwapWithAlternate(world, Vec2<u32>(pos.x() - 1, pos.y() + 1),
+            if (p.mPreferSlideLeft) {
+                trySwapWithAlternate(world, p, Vec2<u32>(pos.x() - 1, pos.y() + 1),
                                      Vec2<u32>(pos.x() + 1, pos.y() + 1));
             } else {
-                trySwapWithAlternate(world, Vec2<u32>(pos.x() + 1, pos.y() + 1),
+                trySwapWithAlternate(world, p, Vec2<u32>(pos.x() + 1, pos.y() + 1),
                                      Vec2<u32>(pos.x() - 1, pos.y() + 1));
             }
         }
         break;
-    case ParticleSimple::Material::Water:
-        if (bottomParticle && bottomParticle->mDensity < mDensity) {
-            world.swap(this, bottomParticle);
+    case Particle::Material::Water:
+        if (bottomParticle && bottomParticle->mDensity < p.mDensity) {
+            world.swap(&p, bottomParticle);
         } else {
             bool swapped = false;
-            if (mPreferSlideLeft) {
-                swapped = trySwapWithAlternate(world, Vec2<u32>(pos.x() - 1, pos.y() + 1),
+            if (p.mPreferSlideLeft) {
+                swapped = trySwapWithAlternate(world, p, Vec2<u32>(pos.x() - 1, pos.y() + 1),
                                                Vec2<u32>(pos.x() + 1, pos.y() + 1));
             } else {
-                swapped = trySwapWithAlternate(world, Vec2<u32>(pos.x() + 1, pos.y() + 1),
+                swapped = trySwapWithAlternate(world, p, Vec2<u32>(pos.x() + 1, pos.y() + 1),
                                                Vec2<u32>(pos.x() - 1, pos.y() + 1));
             }
 
             if (!swapped) {
-                if (mPreferSlideLeft) {
-                    trySwapWithAlternate(world, Vec2<u32>(pos.x() - 1, pos.y()),
+                if (p.mPreferSlideLeft) {
+                    trySwapWithAlternate(world, p, Vec2<u32>(pos.x() - 1, pos.y()),
                                          Vec2<u32>(pos.x() + 1, pos.y()));
                 } else {
-                    trySwapWithAlternate(world, Vec2<u32>(pos.x() + 1, pos.y()),
+                    trySwapWithAlternate(world, p, Vec2<u32>(pos.x() + 1, pos.y()),
                                          Vec2<u32>(pos.x() - 1, pos.y()));
                 }
             }
         }
         break;
-    case ParticleSimple::Material::Rock:
+    case Particle::Material::Rock:
         break;
     }
 }
 
-World<ParticleSimple> gWorld;
+World<Particle, Rule> gWorld;
 
 inline void sdl_bail(std::string s) {
     printf("%s: %s\n", s.c_str(), SDL_GetError());
     exit(1);
 }
 
-ParticleSimple::Material gSelectedMaterial = ParticleSimple::Material::Sand;
+Particle::Material gSelectedMaterial = Particle::Material::Sand;
 
 enum class BrushMode : u8 { Spray, Paint };
 BrushMode gSelectedBrushMode = BrushMode::Spray;
@@ -298,16 +316,16 @@ inline void mainLoop() {
                 gQuit = true;
                 break;
             case SDLK_1:
-                gSelectedMaterial = ParticleSimple::Material::Sand;
+                gSelectedMaterial = Particle::Material::Sand;
                 break;
             case SDLK_2:
-                gSelectedMaterial = ParticleSimple::Material::Water;
+                gSelectedMaterial = Particle::Material::Water;
                 break;
             case SDLK_3:
-                gSelectedMaterial = ParticleSimple::Material::Rock;
+                gSelectedMaterial = Particle::Material::Rock;
                 break;
             case SDLK_0:
-                gSelectedMaterial = ParticleSimple::Material::Air;
+                gSelectedMaterial = Particle::Material::Air;
                 break;
             case SDLK_q:
                 gSelectedBrushMode = BrushMode::Spray;
@@ -333,7 +351,7 @@ inline void mainLoop() {
         u32 buttonState = SDL_GetMouseState(&mouseX, &mouseY);
 
         if (buttonState & SDL_BUTTON(SDL_BUTTON_LEFT)) {
-            ParticleSimple p(gSelectedMaterial);
+            Particle p(gSelectedMaterial);
 
             u32 spawnX, spawnY;
             const int SPAWN_DISPERSION = 4;
@@ -350,7 +368,7 @@ inline void mainLoop() {
             case BrushMode::Paint:
                 for (int offsetX = -2; offsetX <= 2; offsetX++) {
                     for (int offsetY = -2; offsetY <= 2; offsetY++) {
-                        p = ParticleSimple(gSelectedMaterial);
+                        p = Particle(gSelectedMaterial);
                         gWorld.spawn(p, Vec2<u32>(mouseX / WORLD_DRAW_SCALE + offsetX,
                                                   mouseY / WORLD_DRAW_SCALE + offsetY));
                     }
