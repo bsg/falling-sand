@@ -218,10 +218,10 @@ bool Rule<P>::trySwapWithAlternate(World<P, Rule> &world, P &p, Vec2<u32> target
                                    Vec2<u32> alternatePos) {
     auto target = world.getParticle(targetPos);
     auto alt = world.getParticle(alternatePos);
-    if (target && p.mDensity < target->mDensity) {
+    if (target && p.mDensity > target->mDensity) {
         world.swap(&p, target);
         return true;
-    } else if (alt && alt->mDensity < target->mDensity) {
+    } else if (alt && p.mDensity > alt->mDensity) {
         world.swap(&p, alt);
         return true;
     }
