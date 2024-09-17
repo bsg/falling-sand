@@ -112,9 +112,9 @@ void Rule<P>::step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate
     if (!shouldUpdate || p.mMaterial == Particle::Material::Air)
         return;
 
-    auto bottomParticle = world.getParticle(pos.x(), pos.y() + 1);
-    auto bottomLeftParticle = world.getParticle(pos.x() - 1, pos.y() + 1);
-    auto bottomRightParticle = world.getParticle(pos.x() + 1, pos.y() + 1);
+    auto bottomParticle = world.getParticle(pos + Vec2<i32>(0, 1));
+    auto bottomLeftParticle = world.getParticle(pos + Vec2<i32>(-1, 1));
+    auto bottomRightParticle = world.getParticle(pos + Vec2<i32>(1, 1));
 
     switch (p.mMaterial) {
     case Particle::Material::Air:
@@ -125,11 +125,9 @@ void Rule<P>::step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate
             world.swap(&p, bottomParticle);
         } else {
             if (p.mPreferSlideLeft) {
-                trySwapWithAlternate(world, p, Vec2<u32>(pos.x() - 1, pos.y() + 1),
-                                     Vec2<u32>(pos.x() + 1, pos.y() + 1));
+                trySwapWithAlternate(world, p, pos + Vec2<i32>(-1, 1), pos + Vec2<i32>(1, 1));
             } else {
-                trySwapWithAlternate(world, p, Vec2<u32>(pos.x() + 1, pos.y() + 1),
-                                     Vec2<u32>(pos.x() - 1, pos.y() + 1));
+                trySwapWithAlternate(world, p, pos + Vec2<i32>(1, 1), pos + Vec2<i32>(-1, 1));
             }
         }
         break;
@@ -139,20 +137,18 @@ void Rule<P>::step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate
         } else {
             bool swapped = false;
             if (p.mPreferSlideLeft) {
-                swapped = trySwapWithAlternate(world, p, Vec2<u32>(pos.x() - 1, pos.y() + 1),
-                                               Vec2<u32>(pos.x() + 1, pos.y() + 1));
+                swapped =
+                    trySwapWithAlternate(world, p, pos + Vec2<i32>(-1, 1), pos + Vec2<i32>(1, 1));
             } else {
-                swapped = trySwapWithAlternate(world, p, Vec2<u32>(pos.x() + 1, pos.y() + 1),
-                                               Vec2<u32>(pos.x() - 1, pos.y() + 1));
+                swapped =
+                    trySwapWithAlternate(world, p, pos + Vec2<i32>(1, 1), pos + Vec2<i32>(-1, 1));
             }
 
             if (!swapped) {
                 if (p.mPreferSlideLeft) {
-                    trySwapWithAlternate(world, p, Vec2<u32>(pos.x() - 1, pos.y()),
-                                         Vec2<u32>(pos.x() + 1, pos.y()));
+                    trySwapWithAlternate(world, p, pos + Vec2<i32>(-1, 0), pos + Vec2<i32>(1, 0));
                 } else {
-                    trySwapWithAlternate(world, p, Vec2<u32>(pos.x() + 1, pos.y()),
-                                         Vec2<u32>(pos.x() - 1, pos.y()));
+                    trySwapWithAlternate(world, p, pos + Vec2<i32>(1, 0), pos + Vec2<i32>(-1, 0));
                 }
             }
         }

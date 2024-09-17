@@ -21,10 +21,9 @@ typedef float f32;
 template <class T>
 concept Scalar = std::is_arithmetic_v<T>;
 
-template <const u8 Dim, Scalar T> class Vector {
+template <const u8 Dim, Scalar T> struct Vector {
     T scalars[Dim];
 
-  public:
     Vector<Dim, T>() { bzero(&scalars, sizeof(scalars) * Dim); }
 
     // TODO std::array has an upper bound but how do I statically enforce a lower bound
@@ -39,14 +38,29 @@ template <const u8 Dim, Scalar T> class Vector {
         }
     }
 
+    template <Scalar T2> Vector<Dim, T> operator+(Vector<Dim, T2> rhs) {
+        Vector<Dim, T> res;
+        for (int i = 0; i < Dim; i++) {
+            // TODO SIMD
+            res.scalars[i] = scalars[i] + rhs.scalars[i];
+        }
+        return res;
+    }
+
     T &operator[](auto idx) { return scalars[idx]; }
 };
 
-template <class T> class Vec2 {
+template <class T> struct Vec2 {
     Vector<2, T> inner;
 
-  public:
+    Vec2<T>() { inner = Vector<2, T>(); }
     Vec2<T>(const T x, const T y) { inner = Vector<2, T>({x, y}); }
+
+    template <Scalar T2> Vec2<T> operator+(Vec2<T2> rhs) {
+        Vec2 res;
+        res.inner = inner + rhs.inner;
+        return res;
+    }
 
     T &x() { return inner[0]; }
     T &y() { return inner[1]; }
