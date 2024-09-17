@@ -8,152 +8,24 @@
 #include "SDL2/SDL_stdinc.h"
 #include "SDL2/SDL_surface.h"
 #include "SDL2/SDL_timer.h"
+#include "types.hpp"
+#include "world.hpp"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
-#include <__concepts/same_as.h>
 #include <chrono>
 #include <iostream>
 #include <string>
 #include <strings.h>
 
-#define SCREEN_WIDTH 1000
-#define SCREEN_HEIGHT 1000
 #define WORLD_WIDTH 500
 #define WORLD_HEIGHT 500
+#define SCREEN_WIDTH 1000
+#define SCREEN_HEIGHT 1000
 #define WORLD_DRAW_SCALE 2
 
 #ifdef __EMSCRIPTEN__
 #include "emscripten.h"
 #endif
-
-typedef char i8;
-typedef unsigned char u8;
-typedef int32_t i32;
-typedef uint32_t u32;
-typedef int64_t i64;
-typedef uint64_t u64;
-typedef long long i128;
-typedef unsigned long long u128;
-typedef float f32;
-
-template <class T>
-concept Scalar = std::is_arithmetic_v<T>;
-
-template <const u8 Dim, Scalar T> class Vector {
-    T scalars[Dim];
-
-  public:
-    Vector<Dim, T>() { bzero(&scalars, sizeof(scalars) * Dim); }
-
-    // TODO std::array has an upper bound but how do I statically enforce a lower bound
-    Vector<Dim, T>(std::array<T, Dim> initList) {
-        auto it = initList.begin();
-        for (auto i = 0; i < Dim; i++) {
-            if (it < initList.end()) {
-                scalars[i] = *it++;
-            } else {
-                scalars[i] = 0;
-            }
-        }
-    }
-
-    T &operator[](auto idx) { return scalars[idx]; }
-};
-
-template <class T> class Vec2 {
-    Vector<2, T> inner;
-
-  public:
-    Vec2<T>(const T x, const T y) { inner = Vector<2, T>({x, y}); }
-
-    T &x() { return inner[0]; }
-    T &y() { return inner[1]; }
-};
-
-template <typename P, template <typename> typename R> struct World;
-
-// clang-format off
-template <typename P>
-concept IsParticle = requires(P t, bool live, u32 generation) {
-    { t.isLive() } -> std::same_as<bool>;
-    { t.setLive(live) };
-    { t.getGeneration() } -> std::same_as<u8>;
-    { t.setGeneration(generation) };
-};
-
-template <typename P, template<typename> typename R>
-concept IsRule = requires(World<P, R> world, P particle, bool shouldUpdate, Vec2<u32> pos) {
-    // TODO constrain this to be static
-    { R<P>::step(world, particle, pos, shouldUpdate) };
-};
-// clang-format on
-
-template <IsParticle P, template <typename> typename R> struct World<P, R> {
-    P mState[WORLD_HEIGHT][WORLD_WIDTH];
-    u8 mGeneration;
-
-    World() {
-        bzero(&mState, sizeof(P) * WORLD_HEIGHT * WORLD_WIDTH);
-        mGeneration = 0;
-    }
-
-    void spawn(P p, Vec2<u32> pos) {
-        if (pos.x() >= 0 && pos.x() < WORLD_WIDTH && pos.y() >= 0 && pos.y() < WORLD_HEIGHT) {
-            p.setGeneration(mGeneration);
-            mState[pos.y()][pos.x()] = p;
-        }
-    }
-
-    void swap(P *a, P *b) {
-        if (b > a) {
-            // b will never be reached in this iteration and if the generation lags behind, it won't
-            // be ticked until mGeneration runs a whole cycle. this also means b is not ticked until
-            // the next frame but eh...
-            b->mGeneration++;
-        }
-
-        // TODO this measures as fast as xor swap, look at the asm sometime
-        P tmp = *a;
-        *a = *b;
-        *b = tmp;
-    }
-
-    P *getParticle(int x, int y) {
-        if (x > WORLD_WIDTH - 1 || x < 0 || y > WORLD_HEIGHT - 1 || y < 0) {
-            [[unlikely]] return nullptr;
-        } else {
-            return &mState[y][x];
-        }
-    }
-
-    P *getParticle(Vec2<u32> pos) {
-        if (pos.x() > WORLD_WIDTH - 1 || pos.x() < 0 || pos.y() > WORLD_HEIGHT - 1 || pos.y() < 0) {
-            [[unlikely]] return nullptr;
-        } else {
-            return &mState[pos.y()][pos.x()];
-        }
-    }
-
-    void step() {
-        for (int y = 0; y < WORLD_HEIGHT; y++) {
-            for (int x = 0; x < WORLD_WIDTH; x++) {
-                P *p = &mState[y][x];
-                // if (!p->isLive()) {
-                //     continue;
-                // }
-
-                bool shouldUpdate = false;
-                if (p->mGeneration == mGeneration) [[likely]] {
-                    shouldUpdate = true;
-                    p->mGeneration++;
-                }
-
-                R<P>::step(*this, *p, Vec2<u32>(x, y), shouldUpdate);
-            }
-        }
-        mGeneration++;
-    }
-};
 
 SDL_Window *gWindow = nullptr;
 SDL_Surface *gScreenSurface = nullptr;
@@ -162,6 +34,11 @@ SDL_Texture *gWorldTexture = nullptr;
 u32 *gTexPixels = nullptr;
 TTF_Font *gFont = nullptr;
 bool gQuit = false;
+
+inline void sdl_bail(std::string s) {
+    printf("%s: %s\n", s.c_str(), SDL_GetError());
+    exit(1);
+}
 
 struct Particle {
     enum class Material : u8 { Air, Sand, Water, Rock };
@@ -208,9 +85,9 @@ Particle::Particle(Particle::Material material) {
 }
 
 template <IsParticle P> struct Rule {
+    static void step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate);
     static bool trySwapWithAlternate(World<P, Rule> &world, P &particle, Vec2<u32> targetPos,
                                      Vec2<u32> alternatePos);
-    static void step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate);
 };
 
 template <IsParticle P>
@@ -285,12 +162,7 @@ void Rule<P>::step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate
     }
 }
 
-World<Particle, Rule> gWorld;
-
-inline void sdl_bail(std::string s) {
-    printf("%s: %s\n", s.c_str(), SDL_GetError());
-    exit(1);
-}
+World<Particle, Rule> gWorld(WORLD_WIDTH, WORLD_HEIGHT);
 
 Particle::Material gSelectedMaterial = Particle::Material::Sand;
 
