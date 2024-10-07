@@ -21,19 +21,20 @@ typedef float f32;
 template <class T>
 concept Scalar = std::is_arithmetic_v<T>;
 
+// TODO Vector::Vector(T x, T y) where Dim == 2
 template <const u8 Dim, Scalar T> struct Vector {
-    T scalars[Dim];
+    T components[Dim];
 
-    Vector<Dim, T>() { bzero(&scalars, sizeof(scalars) * Dim); }
+    Vector<Dim, T>() { bzero(&components, sizeof(components) * Dim); }
 
     // TODO std::array has an upper bound but how do I statically enforce a lower bound
     Vector<Dim, T>(std::array<T, Dim> initList) {
         auto it = initList.begin();
         for (auto i = 0; i < Dim; i++) {
             if (it < initList.end()) {
-                scalars[i] = *it++;
+                components[i] = *it++;
             } else {
-                scalars[i] = 0;
+                components[i] = 0;
             }
         }
     }
@@ -42,28 +43,20 @@ template <const u8 Dim, Scalar T> struct Vector {
         Vector<Dim, T> res;
         for (int i = 0; i < Dim; i++) {
             // TODO SIMD
-            res.scalars[i] = scalars[i] + rhs.scalars[i];
+            res.components[i] = components[i] + rhs.components[i];
         }
         return res;
     }
 
-    T &operator[](auto idx) { return scalars[idx]; }
+    T &operator[](auto idx) { return components[idx]; }
+
+    // clang-format off
+    T &x() requires(Dim > 0) { return components[0]; }
+    T &y() requires(Dim > 1) { return components[1]; }
+    T &z() requires(Dim > 2) { return components[2]; }
+    // clang-format on
 };
 
-template <class T> struct Vec2 {
-    Vector<2, T> inner;
-
-    Vec2<T>() { inner = Vector<2, T>(); }
-    Vec2<T>(const T x, const T y) { inner = Vector<2, T>({x, y}); }
-
-    template <Scalar T2> Vec2<T> operator+(Vec2<T2> rhs) {
-        Vec2 res;
-        res.inner = inner + rhs.inner;
-        return res;
-    }
-
-    T &x() { return inner[0]; }
-    T &y() { return inner[1]; }
-};
+template <class T> using Vec2 = Vector<2, T>;
 
 #endif

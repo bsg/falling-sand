@@ -72,8 +72,8 @@ template <IsParticle P, template <typename> typename R> struct World<P, R> {
     }
 
     void step() {
-        for (int y = 0; y < mHeight; y++) {
-            for (int x = 0; x < mWidth; x++) {
+        for (u32 y = 0; y < mHeight; y++) {
+            for (u32 x = 0; x < mWidth; x++) {
                 P *p = getParticle(x, y);
                 // if (!p->isLive()) {
                 //     continue;
@@ -85,7 +85,7 @@ template <IsParticle P, template <typename> typename R> struct World<P, R> {
                     p->mGeneration++;
                 }
 
-                R<P>::step(*this, *p, Vec2<u32>(x, y), shouldUpdate);
+                R<P>::step(*this, *p, Vec2<u32>({x, y}), shouldUpdate);
             }
         }
         mGeneration++;

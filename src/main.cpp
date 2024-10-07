@@ -112,22 +112,20 @@ void Rule<P>::step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate
     if (!shouldUpdate || p.mMaterial == Particle::Material::Air)
         return;
 
-    auto bottomParticle = world.getParticle(pos + Vec2<i32>(0, 1));
-    auto bottomLeftParticle = world.getParticle(pos + Vec2<i32>(-1, 1));
-    auto bottomRightParticle = world.getParticle(pos + Vec2<i32>(1, 1));
+    auto bottomParticle = world.getParticle(pos + Vec2<i32>({0, 1}));
+    auto bottomLeftParticle = world.getParticle(pos + Vec2<i32>({-1, 1}));
+    auto bottomRightParticle = world.getParticle(pos + Vec2<i32>({1, 1}));
 
     switch (p.mMaterial) {
-    case Particle::Material::Air:
-        break;
     case Particle::Material::Sand:
 
         if (bottomParticle && bottomParticle->mDensity < p.mDensity) {
             world.swap(&p, bottomParticle);
         } else {
             if (p.mPreferSlideLeft) {
-                trySwapWithAlternate(world, p, pos + Vec2<i32>(-1, 1), pos + Vec2<i32>(1, 1));
+                trySwapWithAlternate(world, p, pos + Vec2<i32>({-1, 1}), pos + Vec2<i32>({1, 1}));
             } else {
-                trySwapWithAlternate(world, p, pos + Vec2<i32>(1, 1), pos + Vec2<i32>(-1, 1));
+                trySwapWithAlternate(world, p, pos + Vec2<i32>({1, 1}), pos + Vec2<i32>({-1, 1}));
             }
         }
         break;
@@ -137,23 +135,23 @@ void Rule<P>::step(World<P, Rule> &world, P &p, Vec2<u32> pos, bool shouldUpdate
         } else {
             bool swapped = false;
             if (p.mPreferSlideLeft) {
-                swapped =
-                    trySwapWithAlternate(world, p, pos + Vec2<i32>(-1, 1), pos + Vec2<i32>(1, 1));
+                swapped = trySwapWithAlternate(world, p, pos + Vec2<i32>({-1, 1}),
+                                               pos + Vec2<i32>({1, 1}));
             } else {
-                swapped =
-                    trySwapWithAlternate(world, p, pos + Vec2<i32>(1, 1), pos + Vec2<i32>(-1, 1));
+                swapped = trySwapWithAlternate(world, p, pos + Vec2<i32>({1, 1}),
+                                               pos + Vec2<i32>({-1, 1}));
             }
 
             if (!swapped) {
                 if (p.mPreferSlideLeft) {
-                    trySwapWithAlternate(world, p, pos + Vec2<i32>(-1, 0), pos + Vec2<i32>(1, 0));
+                    trySwapWithAlternate(world, p, pos + Vec2<i32>({-1, 0}),
+                                         pos + Vec2<i32>({1, 0}));
                 } else {
-                    trySwapWithAlternate(world, p, pos + Vec2<i32>(1, 0), pos + Vec2<i32>(-1, 0));
+                    trySwapWithAlternate(world, p, pos + Vec2<i32>({1, 0}),
+                                         pos + Vec2<i32>({-1, 0}));
                 }
             }
         }
-        break;
-    case Particle::Material::Rock:
         break;
     }
 }
@@ -231,14 +229,17 @@ inline void mainLoop() {
                 spawnY =
                     mouseY / WORLD_DRAW_SCALE + rand() % (SPAWN_DISPERSION * 2) - SPAWN_DISPERSION;
 
-                gWorld.spawn(p, Vec2<u32>(spawnX, spawnY));
+                gWorld.spawn(p, Vec2<u32>({spawnX, spawnY}));
                 break;
             case BrushMode::Paint:
                 for (int offsetX = -2; offsetX <= 2; offsetX++) {
                     for (int offsetY = -2; offsetY <= 2; offsetY++) {
                         p = Particle(gSelectedMaterial);
-                        gWorld.spawn(p, Vec2<u32>(mouseX / WORLD_DRAW_SCALE + offsetX,
-                                                  mouseY / WORLD_DRAW_SCALE + offsetY));
+                        gWorld.spawn(
+                            p,
+                            Vec2<u32>(
+                                {static_cast<unsigned int>(mouseX / WORLD_DRAW_SCALE + offsetX),
+                                 static_cast<unsigned int>(mouseY / WORLD_DRAW_SCALE + offsetY)}));
                     }
                 }
                 break;
