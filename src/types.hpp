@@ -21,13 +21,12 @@ typedef float f32;
 template <class T>
 concept Scalar = std::is_arithmetic_v<T>;
 
-// TODO Vector::Vector(T x, T y) where Dim == 2
+// TODO Vector::Vector(T...)
 template <const u8 Dim, Scalar T> struct Vector {
     T components[Dim];
 
     Vector<Dim, T>() { bzero(&components, sizeof(components) * Dim); }
 
-    // TODO std::array has an upper bound but how do I statically enforce a lower bound
     Vector<Dim, T>(std::array<T, Dim> initList) {
         auto it = initList.begin();
         for (auto i = 0; i < Dim; i++) {
@@ -57,7 +56,10 @@ template <const u8 Dim, Scalar T> struct Vector {
     // clang-format on
 };
 
-template <class T> using Vec2 = Vector<2, T>;
-template <class T> inline Vector<2, T> vec2(T x, T y) { return Vector<2, T>({x, y}); }
+template <Scalar T> using Vec2 = Vector<2, T>;
+// TODO constrain params to be of the same type
+template <Scalar... T> inline Vector<sizeof...(T), std::common_type_t<T...>> vec(T... args) {
+    return Vector<sizeof...(T), std::common_type_t<T...>>({args...});
+}
 
 #endif

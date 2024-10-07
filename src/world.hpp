@@ -85,7 +85,7 @@ template <IsParticle P, template <typename> typename R> struct World<P, R> {
                     p->mGeneration++;
                 }
 
-                R<P>::step(*this, *p, vec2(x, y), shouldUpdate);
+                R<P>::step(*this, *p, vec(x, y), shouldUpdate);
             }
         }
         mGeneration++;
