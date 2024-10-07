@@ -58,5 +58,6 @@ template <const u8 Dim, Scalar T> struct Vector {
 };
 
 template <class T> using Vec2 = Vector<2, T>;
+template <class T> inline Vector<2, T> vec2(T x, T y) { return Vector<2, T>({x, y}); }
 
 #endif
